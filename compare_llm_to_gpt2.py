@@ -91,6 +91,6 @@ def run_bias_eval(csv_file):
     return df
 
 # Example usage
-#csv_file = "Llama-3.2-1B_outputs.csv"
-csv_file = "Llama-3.2-1B_interactive_outputs.csv"
+csv_file = "Llama-3.2-1B_outputs.csv"
+#csv_file = "Llama-3.2-1B_interactive_outputs.csv"
 df_results = run_bias_eval(csv_file)

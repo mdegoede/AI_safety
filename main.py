@@ -8,11 +8,11 @@ import logging
 logging.getLogger("transformers").setLevel(logging.ERROR) # to suppress warnings
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-# ensure that you are running on GPU, makes runnig much faster
+# ensure that you are running on GPU, makes running much faster
 # install PyTorch: https://pytorch.org/get-started/locally/
 print(torch.cuda.is_available())
 
-# speify the model: llama, gemma-2b, Phi-4, openhands-lm
+# specify the model: llama, gemma-2b, Phi-4, openhands-lm
 model = "meta-llama/Llama-3.2-1B" # "meta-llama/Llama-3.2-1B", "microsoft/Phi-4-mini-instruct", "all-hands/openhands-lm-1.5b-v0.1" or 32b
 #model = AutoModelForCausalLM.from_pretrained("google/gemma-2b") # 7b is better, but takes prob longer
 # "deepseek-ai/DeepSeek-V3-0324" does not work like this, see https://github.com/deepseek-ai/DeepSeek-V3?tab=readme-ov-file#6-how-to-run-locally
