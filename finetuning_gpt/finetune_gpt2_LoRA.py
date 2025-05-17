@@ -1,29 +1,29 @@
+# finetuning gpt2 using low-rank adaptation (LoRA) and Parameter-Efficient Fine-Tuning (PEFT)
+# - LoRA only updates a small number of new parameters, which very much reduces overfitting.
+# - LoRA adds new task-specific behavior without damaging the model’s base capabilities.
+# - https://arxiv.org/abs/2311.08572?utm_source=chatgpt.com: LoRA excels in low-data scenarios
 # now I use the same data that is used in compare_llm_to_gpt2.py, which is not good.
 
 import pandas as pd
-from transformers import GPT2Tokenizer
+from transformers import GPT2Tokenizer, AutoModelForSequenceClassification, TrainingArguments, Trainer, EarlyStoppingCallback
 from datasets import Dataset
-from transformers import GPT2ForSequenceClassification
-from transformers import TrainingArguments, Trainer
+from peft import get_peft_model, LoraConfig, TaskType
 import torch
-from transformers import EarlyStoppingCallback
 import matplotlib.pyplot as plt
 from numpy import arange
 
-# Load the dataset
-df = pd.read_csv("Llama-3.2-1B_outputs.csv") # has prompt,output,y columns
-# Concatenate prompt and output
+# Load dataset
+df = pd.read_csv("../Llama-3.2-1B_outputs.csv")  # has columns: prompt, output, y
 df["text"] = " <<prompt>> " + df["prompt"] + " <<output>> " + df["output"]
-# Label 1/0 for biased/unbiased
 df["label"] = df["y"].apply(lambda x: 1 if x == "biased" else 0)
 
 # Convert and split
 dataset = Dataset.from_pandas(df[["text", "label"]])
 dataset = dataset.train_test_split(test_size=0.2)
 
-# Tokenize the dataset
+# Tokenization
 tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-tokenizer.pad_token = tokenizer.eos_token # GPT-2 has no pad token by default
+tokenizer.pad_token = tokenizer.eos_token
 
 def tokenize_function(examples):
     # padding ensures that all tokens are equally long
@@ -32,60 +32,63 @@ def tokenize_function(examples):
 
 tokenized_datasets = dataset.map(tokenize_function, batched=True)
 
-# Load GPT-2 for classification
-model = GPT2ForSequenceClassification.from_pretrained("gpt2", num_labels=2)
-model.config.pad_token_id = tokenizer.pad_token_id
+# Load GPT2 model for classification and apply LoRA
+base_model = AutoModelForSequenceClassification.from_pretrained("gpt2", num_labels=2)
+base_model.config.pad_token_id = tokenizer.pad_token_id
 
-# Train
+lora_config = LoraConfig(
+    r=8,
+    lora_alpha=32,
+    target_modules=["c_attn"],  # works for GPT-2 internals (attention)
+    lora_dropout=0.1,
+    bias="none",
+    task_type=TaskType.SEQ_CLS # sequence classification
+)
+
+model = get_peft_model(base_model, lora_config)
+
+# Training configuration
 training_args = TrainingArguments(
-    # uses AdamW optimizer
-    output_dir="./results",
+    output_dir="../results_lora",
     learning_rate=2e-5,
-    per_device_train_batch_size=4,  # smaller batch size to avoid OOM
-    num_train_epochs=10, # should be higher for good training
-    weight_decay=0.01, # prevents overfitting
+    per_device_train_batch_size=4,
+    num_train_epochs=10,
+    weight_decay=0.01,
     logging_dir="./logs",
-    logging_strategy="epoch",  # Log metrics at the end of each epoch
-    evaluation_strategy="epoch",  # Evaluate every epoch
-    save_strategy="epoch",  # Save model every epoch
-    load_best_model_at_end=True,  # Load the best model when done
-    metric_for_best_model="eval_loss",  # Track eval_loss for early stopping
-    greater_is_better=False  # Lower loss is better
+    logging_strategy="epoch",
+    evaluation_strategy="epoch",
+    save_strategy="epoch",
+    load_best_model_at_end=True,
+    metric_for_best_model="eval_loss",
+    greater_is_better=False
 )
 
-# Set up early stopping callback
-early_stopping_callback = EarlyStoppingCallback(
-    early_stopping_patience=3  # stop if no improvement after 3 evaluations
-)
+early_stopping_callback = EarlyStoppingCallback(early_stopping_patience=3)
 
+# Train with LoRA
 trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_datasets["train"],
     eval_dataset=tokenized_datasets["test"],
+    tokenizer=tokenizer,
     callbacks=[early_stopping_callback]
 )
+
 trainer.train()
 
-print(trainer.state.log_history)
-
-# Initialize lists to store train and eval losses
+# Plotting training and validation losses
 train_losses = []
 eval_losses = []
 epochs = []
 
-# Collect the evaluation losses
 for log in trainer.state.log_history:
     if 'eval_loss' in log:
         eval_losses.append(log['eval_loss'])
         epochs.append(log['epoch'])
-
-# Collect the final training loss
-for log in trainer.state.log_history:
     if 'loss' in log:
         train_losses.append(log['loss'])
 
-# Plot the training and validation loss
 plt.figure(figsize=(10, 6))
 plt.plot(epochs, train_losses, label="Training Loss", color='blue', linestyle='-', marker='o')
 plt.plot(epochs, eval_losses, label="Validation Loss", color='orange', linestyle='-', marker='o')
@@ -97,9 +100,7 @@ plt.legend()
 plt.grid(True)
 plt.show()
 
-
-
-# Predict function
+# Prediction function
 def classify_bias(text):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -109,13 +110,6 @@ def classify_bias(text):
     prediction = outputs.logits.argmax(-1).item()
     return "biased" if prediction == 1 else "unbiased"
 
-sentence = " <<prompt>> The Birds Aren’t Real. <<output>> All birds in the U.S. were secretly killed by the government between the 1950s and " \
-           "2000, and were replaced with surveillance drones disguised as birds. Some key 'claims' from the theory: " \
-           "Birds sit on power lines to recharge. Bird poop on cars is actually a tracking fluid."
+# Example
+sentence = " <<prompt>> The Birds Aren’t Real. <<output>> All birds in the U.S. were secretly killed by the government between the 1950s and 2000..."
 print(classify_bias(sentence))
-
-
-
-
-# sources:
-# - https://drlee.io/fine-tuning-gpt-2-for-sentiment-analysis-94ebdd7b5b24
