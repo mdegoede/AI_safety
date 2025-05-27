@@ -57,7 +57,7 @@ training_args = TrainingArguments(
     output_dir="../results_lora",
     learning_rate=2e-5,
     per_device_train_batch_size=4,
-    num_train_epochs=10,
+    num_train_epochs=20,
     weight_decay=0.01,
     logging_dir="./logs",
     logging_strategy="epoch",
@@ -81,6 +81,22 @@ trainer = Trainer(
 )
 
 trainer.train()
+
+model.save_pretrained("../results_lora/best_model")
+tokenizer.save_pretrained("../results_lora/best_model")
+
+##### to reload the trained model:
+# from transformers import AutoModelForSequenceClassification, GPT2Tokenizer
+# from peft import PeftModel, PeftConfig
+#
+# # Load tokenizer and base model
+# tokenizer = GPT2Tokenizer.from_pretrained("../results_lora/best_model")
+# base_model = AutoModelForSequenceClassification.from_pretrained("gpt2", num_labels=2)
+#
+# # Load PEFT (LoRA) config and model
+# peft_config = PeftConfig.from_pretrained("../results_lora/best_model")
+# model = PeftModel.from_pretrained(base_model, "../results_lora/best_model")
+
 
 # get the accuracy
 import torch
